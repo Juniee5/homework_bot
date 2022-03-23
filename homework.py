@@ -1,13 +1,17 @@
-from asyncio.log import logger
 import json
 import logging
 import os
+import sys
 import time
 
 import requests
-import telegram
-
 from dotenv import load_dotenv
+from telegram import Bot, error
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
 
 load_dotenv()
 
@@ -27,154 +31,159 @@ HOMEWORK_STATUSES = {
     'rejected': 'Работа проверена: у ревьюера есть замечания.'
 }
 
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    filename='program.log',
-    filemode='w',
-    format='%(asctime)s - %(levelname)s - %(message)s - %(name)s'
-)
-logger = logging.getLogger(__name__)
-logger.addHandler(
-    logging.StreamHandler()
-)
+logging.debug('Бот запущен!')
 
 
-class TheAnswerIsNot200Error(Exception):
-    """Ответ сервера не равен 200."""
+class PracticumException(Exception):
+    """Исключения бота."""
 
-
-class EmptyDictionaryOrListError(Exception):
-    """Пустой словарь или список."""
-
-
-class UndocumentedStatusError(Exception):
-    """Недокументированный статус."""
-
-
-class RequestExceptionError(Exception):
-    """Ошибка запроса."""
-
-
-def send_message(bot, message):
-    '''Сообщение в телегу'''
-    try:
-        bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.info(
-            f'Сообщение в Телеграм отправлено: {message}'
-        )
-    except telegram.TelegramError as telegram_error:
-        logger.error(
-            f'Сообщение в Telegram не отправлено: {telegram_error}'
-        )
-
-
-def get_api_answer(current_timestamp):
-    timestamp = current_timestamp or int(time.time())
-    params = {'from_date': timestamp}
-    headers = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-    try:
-        response = requests.get(headers=headers, params=params)
-        if response.status_code != 200:
-            code_api_msg = (
-                f' Код ответа API: {response.status_code}')
-            logger.error(code_api_msg)
-            raise TheAnswerIsNot200Error(code_api_msg)
-        return response.json()
-    except requests.exceptions.RequestException as request_error:
-        code_api_msg = f'Код ответа API (RequestException): {request_error}'
-        logger.error(code_api_msg)
-        raise RequestExceptionError(code_api_msg)
-    except json.JSONDecodeError as value_error:
-        code_api_msg = f'Код ответа API (ValueError): {value_error}'
-        logger.error(code_api_msg)
-        raise json.JSONDecodeError(code_api_msg)
-
-
-def extracted_from_parse_status(arg0, arg1):
-    code_api_msg = f'{arg0}{arg1}'
-    logger.error(code_api_msg)
-    raise UndocumentedStatusError(code_api_msg)
-
-
-def check_response(response):
-    if response.get('homeworks') is None:
-        code_api_msg = (
-            'Ошибка ключа homeworks или response'
-            'имеет неправильное значение.')
-        logger.error(code_api_msg)
-        raise EmptyDictionaryOrListError(code_api_msg)
-    if response['homeworks'] == []:
-        return {}
-    status = response['homeworks'][0].get('status')
-    if status not in HOMEWORK_STATUSES:
-        code_api_msg = f'Ошибка недокументированный статус: {status}'
-        logger.error(code_api_msg)
-        raise UndocumentedStatusError(code_api_msg)
-    return response['homeworks'][0]
-
-
-def parse_status(homework):
-    status = homework.get('status')
-    homework_name = homework.get('homework_name')
-    if status is None:
-        extracted_from_parse_status(
-            'Ошибка пустое значение status: ', status)
-    if homework_name is None:
-        extracted_from_parse_status(
-            'Ошибка пустое значение homework_name: ', homework_name)
-    verdict = HOMEWORK_STATUSES[status]
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    pass
 
 
 def check_tokens():
-    """Проверка наличия токенов."""
-    no_tokens_msg = (
-        'Программа принудительно остановлена. '
-        'Отсутствует обязательная переменная окружения:')
-    tokens_bool = True
-    if PRACTICUM_TOKEN is None:
-        tokens_bool = False
-        logger.critical(
-            f'{no_tokens_msg} PRACTICUM_TOKEN')
-    if TELEGRAM_TOKEN is None:
-        tokens_bool = False
-        logger.critical(
-            f'{no_tokens_msg} TELEGRAM_TOKEN')
-    if TELEGRAM_CHAT_ID is None:
-        tokens_bool = False
-        logger.critical(
-            f'{no_tokens_msg} CHAT_ID')
-    return tokens_bool
+    if PRACTICUM_TOKEN is None or \
+            TELEGRAM_TOKEN is None or \
+            TELEGRAM_CHAT_ID is None:
+        return False
+    return True
+
+
+def timeout_and_logging(message: str = None, run_error=logging.error):
+    if message:
+        run_error(message)  # Запись в лог
+    global time_sleep_error
+    logging.debug(f'Timeout: {time_sleep_error}с')
+    time.sleep(time_sleep_error)
+    time_sleep_error *= 2
+    if time_sleep_error >= 51200:
+        time_sleep_error = 30
+        logging.critical(
+            'Проблемы в работе программы. '
+        )
+
+
+def parse_status(homework: dict) -> str:
+    logging.debug(f"Парсим домашнее задание: {homework}")
+    homework_name = homework['homework_name']
+    homework_status = homework['status']
+
+    if homework_status not in HOMEWORK_STATUSES:
+        raise PracticumException(
+            "Обнаружен новый статус, отсутствующий в списке!"
+        )
+
+    verdict = HOMEWORK_STATUSES[homework_status]
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+
+
+def get_api_answer(current_timestamp: int) -> list:
+    logging.info("Получение ответа от сервера")
+    try:
+        homework_statuses = requests.get(
+            ENDPOINT,
+            headers={'Authorization': f'OAuth {PRACTICUM_TOKEN}'},
+            params={'from_date': current_timestamp}
+        )
+    except requests.exceptions.RequestException as e:
+        raise PracticumException(
+            "При обработке вашего запроса возникла неоднозначная "
+            f"исключительная ситуация: {e}"
+        )
+    except ValueError as e:
+        raise PracticumException(f"Ошибка в значении {e}")
+    except TypeError as e:
+        raise PracticumException(f"Не корректный тип данных {e}")
+
+    if homework_statuses.status_code != 200:
+        logging.debug(homework_statuses.json())
+        raise PracticumException(
+            f"Ошибка {homework_statuses.status_code} practicum.yandex.ru")
+
+    try:
+        homework_statuses_json = homework_statuses.json()
+    except json.JSONDecodeError:
+        raise PracticumException(
+            "Ответ от сервера должен быть в формате JSON"
+        )
+    logging.info("Получен ответ от сервера")
+    return homework_statuses_json
+
+
+def check_response(response: list) -> list:
+    logging.debug("Проверка ответа API на корректность")
+    if 'error' in response:
+        if 'error' in response['error']:
+            raise PracticumException(
+                f"{response['error']['error']}"
+            )
+
+    if 'code' in response:
+        raise PracticumException(
+            f"{response['message']}"
+        )
+
+    if response['homeworks'] is None:
+        raise PracticumException("Задания не обнаружены")
+
+    if not isinstance(response['homeworks'], list):
+        raise PracticumException("response['homeworks'] не является списком")
+    logging.debug("API проверен на корректность")
+    return response['homeworks']
+
+
+def send_message(bot, message: str):
+    log = message.replace('\n', '')
+    logging.info(f"Отправка сообщения в телеграм: {log}")
+    try:
+        return bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+    except error.Unauthorized:
+        timeout_and_logging(
+            'Телеграм API: Не авторизован, проверьте TELEGRAM_TOKEN и '
+            'TELEGRAM_CHAT_ID '
+        )
+    except error.BadRequest as e:
+        timeout_and_logging(f'Ошибка работы с Телеграм: {e}')
+    except error.TelegramError as e:
+        timeout_and_logging(f'Ошибка работы с Телеграм: {e}')
 
 
 def main():
-    """Основная логика работы бота."""
     if not check_tokens():
-        exit()
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    current_timestamp = int(time.time())
-    tmp_status = 'reviewing'
-    errors = True
+        logging.critical("Отсутствует переменная окружения")
+        return 0
+    bot = Bot(token=TELEGRAM_TOKEN)
+    current_timestamp = int(time.time())  # начальное значение timestamp или 0
+
     while True:
         try:
-            response = get_api_answer(ENDPOINT, current_timestamp)
-            homework = check_response(response)
-            if homework and tmp_status != homework['status']:
-                message = parse_status(homework)
-                send_message(bot, message)
-                tmp_status = homework['status']
-            logger.info(
-                'Изменений нет, ждем 10 минут и проверяем API')
+            response_api = get_api_answer(current_timestamp)
+            homeworks = check_response(response_api)
+            logging.info("Список домашних работ получен")
+            if ((type(homeworks) is list)
+                    and (len(homeworks) > 0)
+                    and homeworks):
+                send_message(bot, parse_status(homeworks[0]))
+            else:
+                logging.info("Задания не обнаружены")
+            current_timestamp = response_api['current_date']
             time.sleep(RETRY_TIME)
-        except Exception as error:
-            message = f'Сбой в работе программы: {error}'
-            if errors:
-                errors = False
-                send_message(bot, message)
-            logger.critical(message)
-            time.sleep(RETRY_TIME)
+
+        except PracticumException as e:
+            # send_message(bot, f'Ошибка: practicum.yandex.ru: {e}')
+            timeout_and_logging(f'practicum.yandex.ru: {e}')
+        except Exception as e:
+            timeout_and_logging(
+                f'Сбой в работе программы: {e}',
+                logging.critical
+            )
+        else:
+            global time_sleep_error
+            time_sleep_error = 30
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('Выход из программы')
+        sys.exit(0)
