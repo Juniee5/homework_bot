@@ -41,6 +41,7 @@ class PracticumException(Exception):
 
 
 def check_tokens():
+    """Проверка доступности переменных окружения."""
     if PRACTICUM_TOKEN is None or \
             TELEGRAM_TOKEN is None or \
             TELEGRAM_CHAT_ID is None:
