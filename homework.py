@@ -50,6 +50,7 @@ def check_tokens():
 
 
 def timeout_and_logging(message: str = None, run_error=logging.error):
+    """Таймаут увеличивающийся в 2 раза и лог."""
     if message:
         run_error(message)  # Запись в лог
     global time_sleep_error
@@ -64,6 +65,7 @@ def timeout_and_logging(message: str = None, run_error=logging.error):
 
 
 def parse_status(homework: dict) -> str:
+    """Извлекает из информации о конкретной домашней работе статус этой работы."""
     logging.debug(f"Парсим домашнее задание: {homework}")
     homework_name = homework['homework_name']
     homework_status = homework['status']
@@ -78,6 +80,7 @@ def parse_status(homework: dict) -> str:
 
 
 def get_api_answer(current_timestamp: int) -> list:
+    """Получение списка домашних работы от заданного времени."""
     logging.info("Получение ответа от сервера")
     try:
         homework_statuses = requests.get(
@@ -111,6 +114,7 @@ def get_api_answer(current_timestamp: int) -> list:
 
 
 def check_response(response: list) -> list:
+    """Проверяет ответ API на корректность."""
     logging.debug("Проверка ответа API на корректность")
     if 'error' in response:
         if 'error' in response['error']:
@@ -133,6 +137,7 @@ def check_response(response: list) -> list:
 
 
 def send_message(bot, message: str):
+    """Отправка сообщения в телеграм."""
     log = message.replace('\n', '')
     logging.info(f"Отправка сообщения в телеграм: {log}")
     try:
@@ -149,6 +154,16 @@ def send_message(bot, message: str):
 
 
 def main():
+    """
+    В ней описана основная логика работы программы.
+    Все остальные функции должны запускаться из неё.
+    Последовательность действий должна быть примерно такой:
+        Сделать запрос к API.
+        Проверить ответ.
+        Если есть обновления — получить статус работы из обновления и
+            отправить сообщение в Telegram.
+        Подождать некоторое время и сделать новый запрос.
+    """
     if not check_tokens():
         logging.critical("Отсутствует переменная окружения")
         return 0
