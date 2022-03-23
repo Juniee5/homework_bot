@@ -65,8 +65,7 @@ def timeout_and_logging(message: str = None, run_error=logging.error):
 
 
 def parse_status(homework: dict) -> str:
-    """Извлекает из информации о конкретной домашней 
-    работе статус этой работы."""
+    """Извлекает из информации о конкретной домашней работе и статус."""
     logging.debug(f"Парсим домашнее задание: {homework}")
     homework_name = homework['homework_name']
     homework_status = homework['status']
