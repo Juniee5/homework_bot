@@ -1,20 +1,21 @@
 import json
 import logging
 import os
-import sys
 import time
+import telegram
 
 import requests
 from dotenv import load_dotenv
 from telegram import Bot, error
+from exceptions import PracticumException, ErrorTy
 
+logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s'
 )
 
 load_dotenv()
-
 
 PRACTICUM_TOKEN = os.getenv('P_TOKEN')
 TELEGRAM_TOKEN = os.getenv('T_TOKEN')
@@ -23,7 +24,6 @@ TELEGRAM_CHAT_ID = os.getenv('T_CHAT_ID')
 RETRY_TIME = 600
 ENDPOINT = 'https://practicum.yandex.ru/api/user_api/homework_statuses/'
 HEADERS = {'Authorization': f'OAuth {PRACTICUM_TOKEN}'}
-
 
 HOMEWORK_STATUSES = {
     'approved': 'Работа проверена: ревьюеру всё понравилось. Ура!',
@@ -34,49 +34,33 @@ HOMEWORK_STATUSES = {
 logging.debug('Бот запущен!')
 
 
-class PracticumException(Exception):
-    """Исключения бота."""
-
-    pass
-
-
 def check_tokens():
     """Проверка доступности переменных окружения."""
-    if PRACTICUM_TOKEN is None or \
-            TELEGRAM_TOKEN is None or \
-            TELEGRAM_CHAT_ID is None:
-        return False
-    return True
-
-
-def timeout_and_logging(message: str = None, run_error=logging.error):
-    """Таймаут увеличивающийся в 2 раза и лог."""
-    if message:
-        run_error(message)  # Запись в лог
-    global time_sleep_error
-    logging.debug(f'Timeout: {time_sleep_error}с')
-    time.sleep(time_sleep_error)
-    time_sleep_error *= 2
-    if time_sleep_error >= 51200:
-        time_sleep_error = 30
-        logging.critical(
-            'Проблемы в работе программы. '
-        )
+    return all((PRACTICUM_TOKEN,
+                TELEGRAM_TOKEN,
+                TELEGRAM_CHAT_ID)
+               )
 
 
 def parse_status(homework: dict) -> str:
     """Извлекает из информации о конкретной домашней работе и статус."""
-    logging.debug(f"Парсим домашнее задание: {homework}")
+    logging.debug(f'Парсим домашнее задание: {homework}')
     homework_name = homework['homework_name']
     homework_status = homework['status']
 
-    if homework_status not in HOMEWORK_STATUSES:
+    if not homework_status:
         raise PracticumException(
-            "Обнаружен новый статус, отсутствующий в списке!"
+            'Обнаружен новый статус, отсутствующий в списке!'
         )
-
-    verdict = HOMEWORK_STATUSES[homework_status]
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    if not homework_name:
+        raise PracticumException(
+            'Не обнаружено имя домашней работы'
+        )
+    if homework_status in HOMEWORK_STATUSES:
+        verdict = HOMEWORK_STATUSES[homework_status]
+        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    else:
+        raise PracticumException('Неизвестный статус работы!')
 
 
 def get_api_answer(current_timestamp: int) -> list:
@@ -90,24 +74,21 @@ def get_api_answer(current_timestamp: int) -> list:
         )
     except requests.exceptions.RequestException as e:
         raise PracticumException(
-            "При обработке вашего запроса возникла неоднозначная "
-            f"исключительная ситуация: {e}"
+            'При обработке вашего запроса возникла неоднозначная'
+            f'исключительная ситуация: {e}'
         )
-    except ValueError as e:
-        raise PracticumException(f"Ошибка в значении {e}")
-    except TypeError as e:
-        raise PracticumException(f"Не корректный тип данных {e}")
 
     if homework_statuses.status_code != 200:
         logging.debug(homework_statuses.json())
         raise PracticumException(
-            f"Ошибка {homework_statuses.status_code} practicum.yandex.ru")
+            f'Ошибка {homework_statuses.status_code} practicum.yandex.ru'
+        )
 
     try:
         homework_statuses_json = homework_statuses.json()
     except json.JSONDecodeError:
         raise PracticumException(
-            "Ответ от сервера должен быть в формате JSON"
+            'Ответ от сервера должен быть в формате JSON'
         )
     logging.info("Получен ответ от сервера")
     return homework_statuses_json
@@ -115,23 +96,13 @@ def get_api_answer(current_timestamp: int) -> list:
 
 def check_response(response: list) -> list:
     """Проверяет ответ API на корректность."""
-    logging.debug("Проверка ответа API на корректность")
-    if 'error' in response:
-        if 'error' in response['error']:
-            raise PracticumException(
-                f"{response['error']['error']}"
-            )
-
-    if 'code' in response:
-        raise PracticumException(
-            f"{response['message']}"
-        )
+    logging.debug('Проверка ответа API на корректность')
 
     if response['homeworks'] is None:
         raise PracticumException("Задания не обнаружены")
 
-    if not isinstance(response['homeworks'], list):
-        raise PracticumException("response['homeworks'] не является списком")
+    if not isinstance(response.get('homeworks'), list):
+        raise TypeError("response['homeworks'] не является списком")
     logging.debug("API проверен на корректность")
     return response['homeworks']
 
@@ -141,16 +112,10 @@ def send_message(bot, message: str):
     log = message.replace('\n', '')
     logging.info(f"Отправка сообщения в телеграм: {log}")
     try:
-        return bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-    except error.Unauthorized:
-        timeout_and_logging(
-            'Телеграм API: Не авторизован, проверьте TELEGRAM_TOKEN и '
-            'TELEGRAM_CHAT_ID '
-        )
-    except error.BadRequest as e:
-        timeout_and_logging(f'Ошибка работы с Телеграм: {e}')
-    except error.TelegramError as e:
-        timeout_and_logging(f'Ошибка работы с Телеграм: {e}')
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+    except telegram.error.TelegramError as error:
+        logger.error(f'Возникла ошибка Телеграм: {error.message}')
+        raise telegram.error.TelegramError(f'Ошибка при отправке: {message}')
 
 
 def main():
@@ -175,26 +140,21 @@ def main():
             response_api = get_api_answer(current_timestamp)
             homeworks = check_response(response_api)
             logging.info("Список домашних работ получен")
-            if ((type(homeworks) is list)
-                    and (len(homeworks) > 0)
-                    and homeworks):
+            if (
+                (isinstance(homeworks) is list)
+                and (len(homeworks) > 0)
+                and homeworks
+            ):
                 send_message(bot, parse_status(homeworks[0]))
             else:
                 logging.info("Задания не обнаружены")
             current_timestamp = response_api['current_date']
-            time.sleep(RETRY_TIME)
 
-        except PracticumException as e:
-            # send_message(bot, f'Ошибка: practicum.yandex.ru: {e}')
-            timeout_and_logging(f'practicum.yandex.ru: {e}')
-        except Exception as e:
-            timeout_and_logging(
-                f'Сбой в работе программы: {e}',
-                logging.critical
-            )
-        else:
-            global time_sleep_error
-            time_sleep_error = 30
+        except Exception as error:
+            message = f'Бот столкнулся с ошибкой: {error}'
+            logger.exception(message)
+            send_message(bot, message)
+            time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
@@ -202,4 +162,3 @@ if __name__ == '__main__':
         main()
     except KeyboardInterrupt:
         print('Выход из программы')
-        sys.exit(0)
