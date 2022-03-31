@@ -7,7 +7,7 @@ import telegram
 import requests
 from dotenv import load_dotenv
 from telegram import Bot
-from exceptions import PracticumException, UndocumentedStatusError
+from exceptions import PracticumException
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
