@@ -83,7 +83,7 @@ def get_api_answer(current_timestamp: int) -> list:
         raise PracticumException(
             f'Ошибка {homework_statuses.status_code} practicum.yandex.ru'
         )
-        loggin.error(homework_statuses.json())
+        logging.error(homework_statuses.json())
         raise ErrorTy(
             f'Ошибка {homework_statuses.status_code} отличная от 200 '
         )
