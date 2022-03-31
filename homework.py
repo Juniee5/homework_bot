@@ -7,7 +7,7 @@ import telegram
 import requests
 from dotenv import load_dotenv
 from telegram import Bot
-from exceptions import PracticumException
+from exceptions import PracticumException, UndocumentedStatusError
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -45,22 +45,22 @@ def check_tokens():
 def parse_status(homework: dict) -> str:
     """Извлекает из информации о конкретной домашней работе и статус."""
     logging.debug(f'Парсим домашнее задание: {homework}')
-    homework_name = homework['homework_name']
-    homework_status = homework['status']
+    homework_name = homework.get('homework_name')
+    homework_status = homework.get('status')
 
-    if not homework_status:
+    if homework_status is None:
         raise PracticumException(
             'Обнаружен новый статус, отсутствующий в списке!'
         )
-    if not homework_name:
-        raise PracticumException(
+    if homework_name is None:
+        raise KeyError(
             'Не обнаружено имя домашней работы'
         )
-    if homework_status in HOMEWORK_STATUSES:
-        verdict = HOMEWORK_STATUSES[homework_status]
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    else:
-        raise PracticumException('Неизвестный статус работы!')
+    if homework_status not in HOMEWORK_STATUSES:
+        raise Exception(f'Неизвестный статус работы: {homework_status}')
+    logging.info(f'Log real: {homework_status}')
+    verdict = HOMEWORK_STATUSES[homework_status]
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def get_api_answer(current_timestamp: int) -> list:
@@ -82,7 +82,7 @@ def get_api_answer(current_timestamp: int) -> list:
         logging.debug(homework_statuses.json())
         raise PracticumException(
             f'Ошибка {homework_statuses.status_code} practicum.yandex.ru'
-        )
+        ) #собственное исключение если вернул  200
 
     try:
         homework_statuses_json = homework_statuses.json()
@@ -90,21 +90,29 @@ def get_api_answer(current_timestamp: int) -> list:
         raise PracticumException(
             'Ответ от сервера должен быть в формате JSON'
         )
+
     logging.info("Получен ответ от сервера")
     return homework_statuses_json
 
 
-def check_response(response: list) -> list:
+def check_response(response: dict) -> dict:
     """Проверяет ответ API на корректность."""
     logging.debug('Проверка ответа API на корректность')
 
-    if response['homeworks'] is None:
-        raise PracticumException("Задания не обнаружены")
-
-    if not isinstance(response.get('homeworks'), list):
-        raise TypeError("response['homeworks'] не является списком")
-    logging.debug("API проверен на корректность")
-    return response['homeworks']
+    if response.get('homeworks', 'current_date') is None:
+        homeworks_status = (
+            'Ошибка ключа homeworks или response'
+            'имеет неправильное значение.')
+        logger.error(homeworks_status)
+        raise PracticumException(homeworks_status)
+    if response['homeworks'] == []:
+        return {}
+    status = response['homeworks'][0].get('status')
+    if status not in HOMEWORK_STATUSES:
+        homeworks_status = f'Ошибка недокументированный статус: {status}'
+        logger.error(homeworks_status)
+        raise UndocumentedStatusError(homeworks_status)
+    return response['homeworks'][0]
 
 
 def send_message(bot, message: str):
@@ -143,17 +151,17 @@ def main():
             if (
                 (isinstance(homeworks) is list)
                 and (len(homeworks) > 0)
-                and homeworks
             ):
                 send_message(bot, parse_status(homeworks[0]))
             else:
                 logging.info("Задания не обнаружены")
-            current_timestamp = response_api['current_date']
+            current_timestamp = response_api.get('from_date')
 
         except Exception as error:
             message = f'Бот столкнулся с ошибкой: {error}'
             logger.exception(message)
             send_message(bot, message)
+        finally:
             time.sleep(RETRY_TIME)
 
 
@@ -161,4 +169,4 @@ if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        print('Выход из программы')
+        logging.debug('Выход из программы')
