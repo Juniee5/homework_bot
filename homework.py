@@ -7,7 +7,7 @@ import telegram
 import requests
 from dotenv import load_dotenv
 from telegram import Bot
-from exceptions import PracticumException, UndocumentedStatusError
+from exceptions import PracticumException, ErrorTy, UndocumentedStatusError
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -82,7 +82,11 @@ def get_api_answer(current_timestamp: int) -> list:
         logging.debug(homework_statuses.json())
         raise PracticumException(
             f'Ошибка {homework_statuses.status_code} practicum.yandex.ru'
-        ) #собственное исключение если вернул  200
+        )
+        loggin.error(homework_statuses.json())
+        raise ErrorTy(
+            f'Ошибка {homework_statuses.status_code} отличная от 200 '
+        )
 
     try:
         homework_statuses_json = homework_statuses.json()
