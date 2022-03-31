@@ -115,7 +115,7 @@ def check_response(response: dict) -> dict:
     if status not in HOMEWORK_STATUSES:
         homeworks_status = f'Ошибка недокументированный статус: {status}'
         logger.error(homeworks_status)
-        raise UndocumentedStatusError(homeworks_status)
+        raise Exception(homeworks_status)
     return response['homeworks'][0]
 
 
