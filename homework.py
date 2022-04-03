@@ -7,7 +7,7 @@ import telegram
 import requests
 from dotenv import load_dotenv
 from telegram import Bot
-from exceptions import PracticumException, ErrorTy
+from exceptions import PracticumException, Error200Exception
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -80,7 +80,7 @@ def get_api_answer(current_timestamp: int) -> list:
 
     if homework_statuses.status_code != 200:
         logging.debug(homework_statuses.json())
-        raise ErrorTy(
+        raise Error200Exception(
             f'Ошибка {homework_statuses.status_code} practicum.yandex.ru'
         )
 
