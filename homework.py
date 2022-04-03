@@ -7,7 +7,7 @@ import telegram
 import requests
 from dotenv import load_dotenv
 from telegram import Bot
-from exceptions import PracticumException
+from exceptions import PracticumException, ErrorTy
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -80,12 +80,8 @@ def get_api_answer(current_timestamp: int) -> list:
 
     if homework_statuses.status_code != 200:
         logging.debug(homework_statuses.json())
-        raise PracticumException(
+        raise ErrorTy(
             f'Ошибка {homework_statuses.status_code} practicum.yandex.ru'
-        )
-        logging.error(homework_statuses.json())
-        raise Exception(
-            f'Ошибка {homework_statuses.status_code} отличная от 200 '
         )
 
     try:
@@ -94,29 +90,25 @@ def get_api_answer(current_timestamp: int) -> list:
         raise PracticumException(
             'Ответ от сервера должен быть в формате JSON'
         )
-
     logging.info("Получен ответ от сервера")
     return homework_statuses_json
 
 
-def check_response(response: dict) -> dict:
+def check_response(response: dict) -> list:
     """Проверяет ответ API на корректность."""
     logging.debug('Проверка ответа API на корректность')
 
+    if not isinstance(response['homeworks'], list):
+        raise TypeError("response['homeworks'] не является списком")
+
     if response.get('homeworks', 'current_date') is None:
-        homeworks_status = (
-            'Ошибка ключа homeworks или response'
-            'имеет неправильное значение.')
-        logger.error(homeworks_status)
-        raise PracticumException(homeworks_status)
-    if response['homeworks'] == []:
+        raise KeyError("Задания не обнаружены")
+
+    if response.get('homeworks', 'current_date') == []:
         return {}
-    status = response['homeworks'][0].get('status')
-    if status not in HOMEWORK_STATUSES:
-        homeworks_status = f'Ошибка недокументированный статус: {status}'
-        logger.error(homeworks_status)
-        raise Exception(homeworks_status)
-    return response['homeworks'][0]
+
+    logging.debug("API проверен на корректность")
+    return response['homeworks']
 
 
 def send_message(bot, message: str):
