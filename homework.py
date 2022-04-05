@@ -3,10 +3,11 @@ import logging
 import os
 import time
 import telegram
-
 import requests
+
 from dotenv import load_dotenv
 from telegram import Bot
+
 from exceptions import PracticumException, Error200Exception
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,8 @@ def parse_status(homework: dict) -> str:
         )
     if homework_status not in HOMEWORK_STATUSES:
         raise Exception(f'Неизвестный статус работы: {homework_status}')
-    logging.info(f'Log real: {homework_status}')
+        logging.info(f'Возможно возникла ошибка или сбой в коде: '
+                     f'{homework_status}')
     verdict = HOMEWORK_STATUSES[homework_status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -101,14 +103,18 @@ def check_response(response: dict) -> list:
     if not isinstance(response['homeworks'], list):
         raise TypeError("response['homeworks'] не является списком")
 
-    if response.get('homeworks', 'current_date') is None:
-        raise KeyError("Задания не обнаружены")
+    if response.get('homeworks') is None:
+        logger.error('В ответе нет ключа homeworks')
+        raise KeyError('В ответе нет ключей')
 
-    if response.get('homeworks', 'current_date') == []:
-        return {}
+    if response.get('current_date') is None:
+        logger.error('В ответе нет ключа current_date')
+        raise KeyError('В ответе нет ключей')
 
-    logging.debug("API проверен на корректность")
-    return response['homeworks']
+    else:
+        logger.info('Ключи есть')
+        checked_response = response.get('homeworks')
+    return checked_response
 
 
 def send_message(bot, message: str):
@@ -145,13 +151,13 @@ def main():
             homeworks = check_response(response_api)
             logging.info("Список домашних работ получен")
             if (
-                (isinstance(homeworks) is list)
+                (isinstance(homeworks, list))
                 and (len(homeworks) > 0)
             ):
                 send_message(bot, parse_status(homeworks[0]))
             else:
                 logging.info("Задания не обнаружены")
-            current_timestamp = response_api.get('from_date')
+            current_timestamp = response_api.get(time.time())
 
         except Exception as error:
             message = f'Бот столкнулся с ошибкой: {error}'
