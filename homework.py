@@ -2,9 +2,9 @@ import json
 import logging
 import os
 import time
+
 import telegram
 import requests
-
 from dotenv import load_dotenv
 from telegram import Bot
 
@@ -58,9 +58,9 @@ def parse_status(homework: dict) -> str:
             'Не обнаружено имя домашней работы'
         )
     if homework_status not in HOMEWORK_STATUSES:
-        raise Exception(f'Неизвестный статус работы: {homework_status}')
         logging.info(f'Возможно возникла ошибка или сбой в коде: '
                      f'{homework_status}')
+        raise Exception(f'Неизвестный статус работы: {homework_status}')
     verdict = HOMEWORK_STATUSES[homework_status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
@@ -111,9 +111,8 @@ def check_response(response: dict) -> list:
         logger.error('В ответе нет ключа current_date')
         raise KeyError('В ответе нет ключей')
 
-    else:
-        logger.info('Ключи есть')
-        checked_response = response.get('homeworks')
+    logger.info('Ключи есть')
+    checked_response = response.get('homeworks')
     return checked_response
 
 
